@@ -77,6 +77,18 @@ jobs:
       - name: Checkout Código Fuente
         uses: actions/checkout@v4
 
+      # Configurar Java con caché automática del directorio ~/.m2
+      - name: Configurar Java y Caché Maven
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21' # Ajusta a la versión de tu proyecto (17, 21, etc.)
+          cache: 'maven'
+
+      # Pre-descargar dependencias para que Trivy no consulte Maven Central
+      - name: Resolver dependencias Maven
+        run: mvn dependency:resolve --batch-mode
+
       - name: Obtener Fecha Actual para Caché de DB
         id: date
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
