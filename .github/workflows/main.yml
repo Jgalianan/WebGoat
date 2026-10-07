@@ -1,0 +1,130 @@
+name: 🛡️ AppSec Baseline Gate (Open Source)
+
+# ==============================================================================
+# Pipeline de Seguridad de Aplicaciones Plug-and-Play para Startups y Pymes
+# Herramientas: Gitleaks (Secretos) + Semgrep (SAST) + Trivy (SCA & SBOM)
+# ==============================================================================
+
+on:
+  pull_request:
+    branches: [ main, master, staging ]
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. DETECCIÓN DE SECRETOS (Gitleaks)
+  # ---------------------------------------------------------------------------
+  gitleaks-secret-scan:
+    name: 🔑 Secret Detection (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Escanear el historial completo del Pull Request
+
+      - name: Ejecutar Gitleaks Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # El job fallará inmediatamente si detecta tokens, claves privadas o secretos
+
+  # ---------------------------------------------------------------------------
+  # 2. ANÁLISIS ESTÁTICO DE CÓDIGO (Semgrep SAST)
+  # ---------------------------------------------------------------------------
+  semgrep-sast:
+    name: 🧬 Static Analysis SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Escanear con Reglas OWASP Top 10 y CWE Top 25
+        run: |
+          semgrep scan \
+            --config "p/owasp-top-ten" \
+            --config "p/cwe-top-25" \
+            --sarif \
+            --output semgrep-results.sarif \
+            --error
+
+      - name: Subir Reporte SARIF a GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # 3. ANÁLISIS DE DEPENDENCIAS, VULNERABILIDADES Y SBOM (Trivy SCA)
+  # ---------------------------------------------------------------------------
+  trivy-sca-sbom:
+    name: 📦 SCA Dependencies & SBOM (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Obtener Fecha Actual para Caché de DB
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Caché de Base de Datos de Vulnerabilidades Trivy
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ steps.date.outputs.date }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Generar Software Bill of Materials (SBOM CycloneDX)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+
+      - name: Guardar SBOM como Artefacto Descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: software-bill-of-materials-cyclonedx
+          path: sbom-cyclonedx.json
+          retention-days: 30
+
+      - name: Escanear Dependencias Vulnerables (Falla en Crítico o Alto)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          format: 'table'
+
+  # ---------------------------------------------------------------------------
+  # 4. EXPORTACIÓN CENTRALIZADA A DEFECTDOJO (OPCIONAL)
+  # ---------------------------------------------------------------------------
+  defectdojo-export:
+    name: 🎯 Ingestión en DefectDojo ASPM
+    needs: [semgrep-sast, trivy-sca-sbom]
+    runs-on: ubuntu-latest
+    if: env.DEFECTDOJO_URL != ''
+    env:
+      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+      DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+    steps:
+      - name: Confirmación de Notificación
+        run: |
+          echo "Enviando telemetría de vulnerabilidades a consola central DefectDojo..."
+          # Descomentar el bloque curl de Capítulo 3 para envíos automáticos de reportes
