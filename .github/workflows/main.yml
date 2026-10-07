@@ -116,15 +116,14 @@ jobs:
   # 4. EXPORTACIÓN CENTRALIZADA A DEFECTDOJO (OPCIONAL)
   # ---------------------------------------------------------------------------
   defectdojo-export:
-    name: 🎯 Ingestión en DefectDojo ASPM
-    needs: [semgrep-sast, trivy-sca-sbom]
-    runs-on: ubuntu-latest
-    if: env.DEFECTDOJO_URL != ''
-    env:
-      DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-      DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
-    steps:
-      - name: Confirmación de Notificación
-        run: |
-          echo "Enviando telemetría de vulnerabilidades a consola central DefectDojo..."
-          # Descomentar el bloque curl de Capítulo 3 para envíos automáticos de reportes
+      name: 🎯 Ingestión en DefectDojo ASPM
+      needs: [semgrep-sast, trivy-sca-sbom]
+      runs-on: ubuntu-latest
+      env:
+        DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+        DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+      steps:
+        - name: Confirmación de Notificación
+          if: env.DEFECTDOJO_URL != ''
+          run: |
+            echo "Enviando telemetría de vulnerabilidades a consola central DefectDojo..."
