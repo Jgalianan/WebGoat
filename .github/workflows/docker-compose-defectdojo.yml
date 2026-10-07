@@ -1,0 +1,88 @@
+version: '3.8'
+
+# ==============================================================================
+# OWASP DefectDojo Lightweight Docker Compose Deployment
+# Ideal para Startups y Pymes (Bajo consumo de recursos, listo para VPS o local)
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: defectdojo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: defectdojo
+      POSTGRES_USER: dojo_user
+      POSTGRES_PASSWORD: ${DOJO_DB_PASSWORD:-SuperSecretDojoPass2026!}
+    volumes:
+      - defectdojo_pgdata:/var/lib/postgresql/data
+    networks:
+      - defectdojo_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dojo_user -d defectdojo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: defectdojo-redis
+    restart: unless-stopped
+    networks:
+      - defectdojo_net
+
+  uwsgi:
+    image: defectdojo/defectdojo-django:latest
+    container_name: defectdojo-uwsgi
+    restart: unless-stopped
+    environment:
+      DD_DATABASE_URL: postgresql://dojo_user:${DOJO_DB_PASSWORD:-SuperSecretDojoPass2026!}@postgres:5432/defectdojo
+      DD_CELERY_BROKER_URL: redis://redis:6379/0
+      DD_SECRET_KEY: ${DOJO_SECRET_KEY:-ChangeThisKeyInProductionEnvironmentSecretDojo2026!}
+      DD_ALLOWED_HOSTS: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - defectdojo_media:/app/media
+    networks:
+      - defectdojo_net
+
+  celeryworker:
+    image: defectdojo/defectdojo-django:latest
+    container_name: defectdojo-celeryworker
+    restart: unless-stopped
+    command: ["/wait-for-it.sh", "uwsgi:8080", "-t", "120", "--", "/entrypoint-celery-worker.sh"]
+    environment:
+      DD_DATABASE_URL: postgresql://dojo_user:${DOJO_DB_PASSWORD:-SuperSecretDojoPass2026!}@postgres:5432/defectdojo
+      DD_CELERY_BROKER_URL: redis://redis:6379/0
+      DD_SECRET_KEY: ${DOJO_SECRET_KEY:-ChangeThisKeyInProductionEnvironmentSecretDojo2026!}
+    depends_on:
+      - uwsgi
+    volumes:
+      - defectdojo_media:/app/media
+    networks:
+      - defectdojo_net
+
+  nginx:
+    image: defectdojo/defectdojo-nginx:latest
+    container_name: defectdojo-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - uwsgi
+    volumes:
+      - defectdojo_media:/app/media
+    networks:
+      - defectdojo_net
+
+volumes:
+  defectdojo_pgdata:
+  defectdojo_media:
+
+networks:
+  defectdojo_net:
+    driver: bridge
